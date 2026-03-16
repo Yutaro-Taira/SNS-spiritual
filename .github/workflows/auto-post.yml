@@ -1,0 +1,58 @@
+name: X 自動投稿
+
+on:
+  schedule:
+    # 時刻はUTC（日本時間はUTC+9）
+    - cron: '0 21 15 3 *'   # 3/16(月) 06:00 JST - 週間タロット
+    - cron: '0 22 16 3 *'   # 3/17(火) 07:00 JST - 星座情報
+    - cron: '0 3 18 3 *'    # 3/18(水) 12:00 JST - 数秘術
+    - cron: '0 3 19 3 *'    # 3/19(木) 12:00 JST - パワーストーン
+    - cron: '0 22 19 3 *'   # 3/20(金) 07:00 JST - 恋愛占い×春分
+    - cron: '0 0 21 3 *'    # 3/21(土) 09:00 JST - スピリチュアルTips
+    - cron: '0 11 22 3 *'   # 3/22(日) 20:00 JST - 来週への準備
+
+  # 手動実行ボタン（GitHub上から投稿できる）
+  workflow_dispatch:
+    inputs:
+      post_id:
+        description: '投稿ID（例: 2026-03-16-mon）空白なら時刻で自動判定'
+        required: false
+        default: ''
+      dry_run:
+        description: 'テスト実行（投稿しない）'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: poster/requirements.txt
+
+      - name: ライブラリをインストール
+        run: pip install -r poster/requirements.txt
+
+      - name: X に投稿
+        env:
+          CONSUMER_KEY: ${{ secrets.CONSUMER_KEY }}
+          CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.post_id }}" ]; then
+            ARGS="--id ${{ github.event.inputs.post_id }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python poster/post.py $ARGS
