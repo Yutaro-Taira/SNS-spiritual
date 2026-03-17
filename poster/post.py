@@ -12,7 +12,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import tweepy
@@ -92,7 +92,8 @@ def post_tweet(client: tweepy.Client, text: str, dry_run: bool = False) -> None:
 
 def find_todays_posts(schedule: list[dict], window_minutes: int = 30) -> list[dict]:
     """現在時刻 ±window_minutes 分以内の投稿を返す"""
-    now = datetime.now()
+    JST = timezone(timedelta(hours=9))
+    now = datetime.now(JST).replace(tzinfo=None)
     results = []
     for item in schedule:
         scheduled_dt = datetime.strptime(f"{item['date']} {item['time']}", "%Y-%m-%d %H:%M")
