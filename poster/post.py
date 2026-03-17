@@ -91,15 +91,15 @@ def post_tweet(client: tweepy.Client, text: str, dry_run: bool = False) -> None:
         sys.exit(1)
 
 
-def find_todays_posts(schedule: list[dict], window_minutes: int = 30) -> list[dict]:
-    """現在時刻 ±window_minutes 分以内の投稿を返す"""
+def find_todays_posts(schedule: list[dict], window_minutes: int = 14) -> list[dict]:
+    """予定時刻を過ぎてから window_minutes 分以内の投稿を返す（過去方向のみ）"""
     JST = timezone(timedelta(hours=9))
     now = datetime.now(JST).replace(tzinfo=None)
     results = []
     for item in schedule:
         scheduled_dt = datetime.strptime(f"{item['date']} {item['time']}", "%Y-%m-%d %H:%M")
-        diff = abs((now - scheduled_dt).total_seconds() / 60)
-        if diff <= window_minutes:
+        diff = (now - scheduled_dt).total_seconds() / 60  # 正=予定時刻を過ぎた
+        if 0 <= diff <= window_minutes:
             results.append(item)
     return results
 
