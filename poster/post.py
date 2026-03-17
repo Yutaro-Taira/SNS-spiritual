@@ -30,6 +30,20 @@ ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
 SCHEDULE_DIR = Path(__file__).parent
 
 
+def detect_schedule_file() -> str:
+    """今週の月曜日に対応するスケジュールファイルを自動判別する"""
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    filename = f"schedule_week_{monday}.json"
+    if (SCHEDULE_DIR / filename).exists():
+        return filename
+    # 対応ファイルがなければ最新のファイルを使う
+    files = sorted(SCHEDULE_DIR.glob("schedule_week_*.json"), reverse=True)
+    if files:
+        return files[0].name
+    return "schedule_week_2026-03-16.json"
+
+
 def load_schedule(schedule_file: str) -> list[dict]:
     path = SCHEDULE_DIR / schedule_file
     if not path.exists():
@@ -98,8 +112,8 @@ def list_schedule(schedule: list[dict]) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="X自動投稿スクリプト")
-    parser.add_argument("--schedule", default="schedule_week_2026-03-16.json",
-                        help="使用するスケジュールファイル名")
+    parser.add_argument("--schedule", default=None,
+                        help="使用するスケジュールファイル名（省略時は今週の日付で自動判別）")
     parser.add_argument("--dry-run", action="store_true",
                         help="投稿せずに内容を確認するだけ")
     parser.add_argument("--id", metavar="POST_ID",
@@ -110,7 +124,9 @@ def main():
                         help="時刻一致の許容範囲（分）。デフォルト30分")
     args = parser.parse_args()
 
-    schedule = load_schedule(args.schedule)
+    schedule_file = args.schedule or detect_schedule_file()
+    print(f"[INFO] スケジュールファイル: {schedule_file}")
+    schedule = load_schedule(schedule_file)
 
     if args.list:
         list_schedule(schedule)
