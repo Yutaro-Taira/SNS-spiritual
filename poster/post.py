@@ -31,8 +31,9 @@ SCHEDULE_DIR = Path(__file__).parent
 
 
 def detect_schedule_file() -> str:
-    """今週の月曜日に対応するスケジュールファイルを自動判別する"""
-    today = datetime.now().date()
+    """今週の月曜日に対応するスケジュールファイルを自動判別する（JST基準）"""
+    JST = timezone(timedelta(hours=9))
+    today = datetime.now(JST).date()
     monday = today - timedelta(days=today.weekday())
     filename = f"schedule_week_{monday}.json"
     if (SCHEDULE_DIR / filename).exists():
