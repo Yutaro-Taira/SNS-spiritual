@@ -29,6 +29,10 @@ ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
 
 SCHEDULE_DIR = Path(__file__).parent
 
+# GitHub Actions の cron は高負荷時に大幅遅延することがある（実測: 最大2時間以上）
+# このウィンドウ内に予定時刻を過ぎていれば投稿する
+DEFAULT_WINDOW_MINUTES = 150
+
 
 def detect_schedule_file() -> str:
     """今週の月曜日に対応するスケジュールファイルを自動判別する（JST基準）"""
@@ -72,34 +76,36 @@ def get_client() -> tweepy.Client:
     )
 
 
-def post_tweet(client: tweepy.Client, text: str, dry_run: bool = False) -> None:
+def post_tweet(client: tweepy.Client, text: str, dry_run: bool = False) -> bool:
+    """投稿する。成功時 True、失敗時 False を返す（例外で止めない）"""
     if dry_run:
         print("[DRY-RUN] 以下の内容を投稿します（実際には送信しません）:")
         print("-" * 50)
         print(text)
         print("-" * 50)
         print(f"文字数: {len(text)} 文字")
-        return
+        return True
 
     try:
         response = client.create_tweet(text=text)
         tweet_id = response.data["id"]
         print(f"[OK] 投稿成功！ Tweet ID: {tweet_id}")
         print(f"     URL: https://x.com/i/web/status/{tweet_id}")
+        return True
     except tweepy.TweepyException as e:
         print(f"[ERROR] 投稿に失敗しました: {e}")
-        sys.exit(1)
+        return False
 
 
-def find_todays_posts(schedule: list[dict], window_minutes: int = 30) -> list[dict]:
-    """現在時刻 ±window_minutes 分以内の投稿を返す"""
+def find_todays_posts(schedule: list[dict], window_minutes: int = DEFAULT_WINDOW_MINUTES) -> list[dict]:
+    """予定時刻を過ぎてから window_minutes 分以内の投稿を返す（過去方向のみ）"""
     JST = timezone(timedelta(hours=9))
     now = datetime.now(JST).replace(tzinfo=None)
     results = []
     for item in schedule:
         scheduled_dt = datetime.strptime(f"{item['date']} {item['time']}", "%Y-%m-%d %H:%M")
-        diff = abs((now - scheduled_dt).total_seconds() / 60)
-        if diff <= window_minutes:
+        diff = (now - scheduled_dt).total_seconds() / 60  # 正=予定時刻を過ぎた
+        if 0 <= diff <= window_minutes:
             results.append(item)
     return results
 
@@ -122,8 +128,8 @@ def main():
                         help="特定の投稿IDを今すぐ投稿")
     parser.add_argument("--list", action="store_true",
                         help="スケジュール一覧を表示")
-    parser.add_argument("--window", type=int, default=30,
-                        help="時刻一致の許容範囲（分）。デフォルト30分")
+    parser.add_argument("--window", type=int, default=DEFAULT_WINDOW_MINUTES,
+                        help=f"予定時刻からの許容遅延（分）。デフォルト{DEFAULT_WINDOW_MINUTES}分")
     args = parser.parse_args()
 
     schedule_file = args.schedule or detect_schedule_file()
@@ -149,16 +155,23 @@ def main():
         return
 
     # 今の時刻に該当する投稿を自動実行
+    JST = timezone(timedelta(hours=9))
+    now_str = datetime.now(JST).strftime("%Y-%m-%d %H:%M JST")
     todays = find_todays_posts(schedule, window_minutes=args.window)
     if not todays:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        print(f"[INFO] {now_str} 時点で投稿予定なし（±{args.window}分以内）")
+        print(f"[INFO] {now_str} 時点で投稿予定なし（予定時刻から{args.window}分以内の投稿が見つかりません）")
         print("       --list でスケジュールを確認できます")
         return
 
+    success_count = 0
     for item in todays:
         print(f"[INFO] 投稿: {item['theme']} ({item['date']} {item['time']})")
-        post_tweet(client, item["text"], dry_run=args.dry_run)
+        if post_tweet(client, item["text"], dry_run=args.dry_run):
+            success_count += 1
+
+    print(f"[INFO] 完了: {success_count}/{len(todays)} 件投稿成功")
+    if success_count == 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
