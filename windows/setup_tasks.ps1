@@ -13,10 +13,22 @@
   スリープ中のPCを自動で起動して実行する「WakeToRun」設定を有効にします。
 
 .NOTES
-  setup_tasks.bat 経由で管理者として実行してください。
+  setup_tasks.bat をダブルクリックして実行してください（管理者昇格は自動処理）。
 #>
 
 $ErrorActionPreference = 'Stop'
+
+# ---- 管理者権限チェック・自動昇格 ----------------------------
+$isAdmin = ([Security.Principal.WindowsPrincipal]
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host '管理者権限が必要です。UAC確認ダイアログを承認してください...'
+    Start-Process PowerShell -Verb RunAs `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    exit
+}
 
 # ---- パス設定 ------------------------------------------------
 $ScriptDir = $PSScriptRoot                     # windows\ フォルダ
