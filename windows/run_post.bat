@@ -7,9 +7,8 @@ setlocal
 :: =============================================================
 
 :: このファイル (windows\) の一つ上 = リポジトリルート
-pushd "%~dp0.."
-set "REPO_DIR=%CD%"
-popd
+:: %%~fI で ".." を含むパスを完全解決する（pushd より確実）
+for /f "delims=" %%I in ("%~dp0..") do set "REPO_DIR=%%~fI"
 
 :: ログ出力先
 set "LOG_DIR=%REPO_DIR%\logs"
