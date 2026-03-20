@@ -1,151 +1,129 @@
-<#
-.SYNOPSIS
-  SNS-spiritual Windows タスクスケジューラ設定スクリプト
-
-.DESCRIPTION
-  LunaVeil_7th アカウントの自動投稿タスクを Windows タスクスケジューラに登録します。
-  登録するタスク:
-    - 毎日       07:00 JST
-    - 毎日       12:00 JST
-    - 毎日       21:00 JST
-    - 水・土のみ 15:00 JST
-
-  スリープ中のPCを自動で起動して実行する「WakeToRun」設定を有効にします。
-
-.NOTES
-  setup_tasks.bat をダブルクリックして実行してください（管理者昇格は自動処理）。
-#>
+﻿# SNS-spiritual Windows Task Scheduler Setup Script
+# LunaVeil_7th account auto-posting tasks
+#
+# Tasks registered:
+#   - Daily        07:00 JST
+#   - Daily        12:00 JST
+#   - Daily        21:00 JST
+#   - Wed/Sat only 15:00 JST
+#
+# WakeToRun: wakes PC from S3 sleep to execute.
+# Run via setup_tasks.bat (admin elevation is handled automatically).
 
 $ErrorActionPreference = 'Stop'
 
-# ---- 管理者権限チェック・自動昇格 ----------------------------
-$isAdmin = ([Security.Principal.WindowsPrincipal]
-    [Security.Principal.WindowsIdentity]::GetCurrent()
-).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+# ---- Admin check and auto-elevation --------------------------
+# Use New-Object to avoid multi-line cast issues on PS 5.1
+$currentIdentity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
+$isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host '管理者権限が必要です。UAC確認ダイアログを承認してください...'
-    Start-Process PowerShell -Verb RunAs `
-        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    Write-Host 'Admin rights required. Please approve the UAC dialog...'
+    $psArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '"'
+    Start-Process PowerShell -Verb RunAs -ArgumentList $psArgs
     exit
 }
 
-# ---- パス設定 ------------------------------------------------
-$ScriptDir = $PSScriptRoot                     # windows\ フォルダ
-$RepoDir   = Split-Path -Parent $ScriptDir     # リポジトリルート
+# ---- Path setup ----------------------------------------------
+$ScriptDir = $PSScriptRoot                  # windows\ folder
+$RepoDir   = Split-Path -Parent $ScriptDir  # repository root
 $RunBat    = Join-Path $ScriptDir 'run_post.bat'
 
 Write-Host ''
-Write-Host '=== SNS-spiritual タスクスケジューラ設定 ===' -ForegroundColor Cyan
-Write-Host "リポジトリ : $RepoDir"
-Write-Host "実行ファイル: $RunBat"
+Write-Host '=== SNS-spiritual Task Scheduler Setup ===' -ForegroundColor Cyan
+Write-Host "Repository : $RepoDir"
+Write-Host "Run script : $RunBat"
 Write-Host ''
 
-# run_post.bat の存在確認
 if (-not (Test-Path $RunBat)) {
-    Write-Host "[ERROR] run_post.bat が見つかりません: $RunBat" -ForegroundColor Red
+    Write-Host "[ERROR] run_post.bat not found: $RunBat" -ForegroundColor Red
     exit 1
 }
 
-# ---- タスク共通設定 ------------------------------------------
+# ---- Common task settings ------------------------------------
 
-# アクション: cmd.exe 経由で run_post.bat を実行
+# Action: run run_post.bat via cmd.exe
 $action = New-ScheduledTaskAction `
     -Execute          'cmd.exe' `
-    -Argument         "/c `"$RunBat`"" `
+    -Argument         ("/c `"" + $RunBat + "`"") `
     -WorkingDirectory $RepoDir
 
-# 設定:
-#   WakeToRun        … S3スリープから自動起動して実行
-#   StartWhenAvailable … 予定時刻を過ぎても次回起動時に実行
-#   MultipleInstances … 多重起動しない
+# Settings:
+#   WakeToRun         ... wake from S3 sleep and run
+#   StartWhenAvailable... run at next boot if missed
+#   MultipleInstances ... do not run concurrently
 $settings = New-ScheduledTaskSettingsSet `
     -WakeToRun `
     -StartWhenAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
     -MultipleInstances IgnoreNew
 
-# プリンシパル: 現在のユーザーとして実行（ログイン中に限る）
+# Principal: run as current user (requires login)
+$currentName = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal `
-    -UserId   ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
+    -UserId    $currentName `
     -LogonType Interactive `
-    -RunLevel Highest
+    -RunLevel  Highest
 
-# ---- タスク定義 ----------------------------------------------
+# ---- Task definitions ----------------------------------------
 $taskDefs = @(
-    @{
-        Name    = 'LunaVeil_Post_07'
-        Trigger = New-ScheduledTaskTrigger -Daily -At '07:00'
-        Desc    = '毎日 07:00 JST 投稿'
-    },
-    @{
-        Name    = 'LunaVeil_Post_12'
-        Trigger = New-ScheduledTaskTrigger -Daily -At '12:00'
-        Desc    = '毎日 12:00 JST 投稿'
-    },
-    @{
-        Name    = 'LunaVeil_Post_21'
-        Trigger = New-ScheduledTaskTrigger -Daily -At '21:00'
-        Desc    = '毎日 21:00 JST 投稿'
-    },
-    @{
-        Name    = 'LunaVeil_Post_WedSat_15'
-        Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Wednesday, Saturday -At '15:00'
-        Desc    = '水・土 15:00 JST 投稿'
-    }
+    @{ Name = 'LunaVeil_Post_07';        Trigger = (New-ScheduledTaskTrigger -Daily -At '07:00');                                       Desc = 'Daily 07:00 JST' },
+    @{ Name = 'LunaVeil_Post_12';        Trigger = (New-ScheduledTaskTrigger -Daily -At '12:00');                                       Desc = 'Daily 12:00 JST' },
+    @{ Name = 'LunaVeil_Post_21';        Trigger = (New-ScheduledTaskTrigger -Daily -At '21:00');                                       Desc = 'Daily 21:00 JST' },
+    @{ Name = 'LunaVeil_Post_WedSat_15'; Trigger = (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Wednesday,Saturday -At '15:00'); Desc = 'Wed/Sat 15:00 JST' }
 )
 
-# ---- タスク登録 ----------------------------------------------
-Write-Host 'タスクを登録しています...' -ForegroundColor White
+# ---- Register tasks ------------------------------------------
+Write-Host 'Registering tasks...' -ForegroundColor White
 
 foreach ($td in $taskDefs) {
     $existing = Get-ScheduledTask -TaskName $td.Name -ErrorAction SilentlyContinue
     if ($existing) {
         Unregister-ScheduledTask -TaskName $td.Name -Confirm:$false
-        Write-Host "  [削除] $($td.Name)  (既存を再登録)" -ForegroundColor Yellow
+        Write-Host ("  [removed] " + $td.Name + " (re-registering)") -ForegroundColor Yellow
     }
 
     Register-ScheduledTask `
         -TaskName    $td.Name `
-        -Description "LunaVeil_7th: $($td.Desc)" `
+        -Description ("LunaVeil_7th: " + $td.Desc) `
         -Action      $action `
         -Trigger     $td.Trigger `
         -Settings    $settings `
         -Principal   $principal | Out-Null
 
-    Write-Host "  [OK]   $($td.Name)" -ForegroundColor Green
+    Write-Host ("  [OK]   " + $td.Name) -ForegroundColor Green
 }
 
-# ---- 結果表示 ------------------------------------------------
+# ---- Results -------------------------------------------------
 Write-Host ''
-Write-Host '=== 登録完了 ===' -ForegroundColor Cyan
+Write-Host '=== Setup Complete ===' -ForegroundColor Cyan
 Write-Host ''
-Write-Host '登録されたタスク:' -ForegroundColor White
+Write-Host 'Registered tasks:' -ForegroundColor White
 
 Get-ScheduledTask | Where-Object { $_.TaskName -like 'LunaVeil_*' } | ForEach-Object {
-    $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -ErrorAction SilentlyContinue
-    $nextRun = if ($info.NextRunTime) { $info.NextRunTime.ToString('yyyy-MM-dd HH:mm') } else { '不明' }
-    Write-Host ("  {0,-30} 次回実行: {1}" -f $_.TaskName, $nextRun)
+    $info    = Get-ScheduledTaskInfo -TaskName $_.TaskName -ErrorAction SilentlyContinue
+    $nextRun = if ($info -and $info.NextRunTime) { $info.NextRunTime.ToString('yyyy-MM-dd HH:mm') } else { 'unknown' }
+    Write-Host ("  {0,-35} Next run: {1}" -f $_.TaskName, $nextRun)
 }
 
-# ---- 注意事項 ------------------------------------------------
+# ---- Notes ---------------------------------------------------
 Write-Host ''
 Write-Host '================================================================' -ForegroundColor Yellow
-Write-Host '【重要】スリープ解除を正しく動作させるための確認事項' -ForegroundColor Yellow
+Write-Host '[IMPORTANT] To enable wake-from-sleep, confirm the following:' -ForegroundColor Yellow
 Write-Host '================================================================' -ForegroundColor Yellow
 Write-Host ''
-Write-Host '(1) Windowsの電源プランで「スリープ解除タイマー」を有効にする'
-Write-Host '    コントロールパネル → 電源オプション → プラン設定の変更'
-Write-Host '    → 詳細な電源設定の変更 → スリープ'
-Write-Host '    → 「スリープ解除タイマーの許可」を「有効」に設定'
+Write-Host '(1) Enable wake timers in Windows Power Plan:'
+Write-Host '    Control Panel -> Power Options -> Change plan settings'
+Write-Host '    -> Change advanced power settings -> Sleep'
+Write-Host '    -> Allow wake timers -> set to [Enable]'
 Write-Host ''
-Write-Host '(2) BIOS/UEFI で「Wake on RTC (RTC Alarm)」が有効になっていること'
-Write-Host '    ※ S3スリープ対応済みとのことなので通常は問題なし'
+Write-Host '(2) Ensure Wake on RTC (RTC Alarm) is enabled in BIOS/UEFI'
+Write-Host '    (S3 sleep support confirmed, so this should be fine)'
 Write-Host ''
-Write-Host '(3) タスクスケジューラの確認: [Win+R] → taskschd.msc'
-Write-Host '    「タスクスケジューラ ライブラリ」に LunaVeil_Post_* が表示されます'
+Write-Host '(3) Check Task Scheduler: [Win+R] -> taskschd.msc'
+Write-Host '    LunaVeil_Post_* tasks should appear in Task Scheduler Library'
 Write-Host ''
-Write-Host '(4) 動作テスト（手動実行）:'
-Write-Host '    タスクを右クリック → 「実行」で即時テストできます'
-Write-Host '    ログは logs\post.log で確認してください'
+Write-Host '(4) Manual test: right-click a task -> Run'
+Write-Host '    Check logs\post.log for output'
 Write-Host ''
